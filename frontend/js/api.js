@@ -1,13 +1,20 @@
-// 8000番で画面+APIを同じオリジン配信。5500番のときだけ :8000 を使う
-const API_BASE =
-    window.location.port === "8000" || window.location.port === "80" || window.location.port === "443" || window.location.port === ""
-        ? ""
-        : `${window.location.protocol}//${window.location.hostname}:8000`;
+// 同じオリジンで配信している前提で、相対パスで API を呼ぶ
+const API_BASE = "";
 
 
 async function getLocations() {
     const res = await fetch(`${API_BASE}/locations/`);
-    if (!res.ok) throw new Error("拠点一覧の取得に失敗しました");
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let detail = "拠点一覧の取得に失敗しました";
+        try {
+            const payload = JSON.parse(text);
+            if (payload?.detail) detail = payload.detail;
+        } catch (_) {
+            if (text) detail = text;
+        }
+        throw new Error(detail);
+    }
     return await res.json();
 }
 

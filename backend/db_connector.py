@@ -20,4 +20,7 @@ def get_connection():
         f"TrustServerCertificate=yes;"
     )
 
-    return pyodbc.connect(conn_str)
+    try:
+        return pyodbc.connect(conn_str)
+    except Exception as exc:
+        raise RuntimeError(f"データベース接続に失敗しました: {exc}") from exc
