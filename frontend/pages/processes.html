@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>工程選択</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+</head>
+<body>
+<button id="backBtn" class="back-btn">← 戻る</button>
+<h1>工程を選択</h1>
+
+<div id="process-container" class="card-grid"></div>
+
+<script src="../js/api.js"></script>
+<script src="../js/render_cards.js"></script>
+<script>
+    const params = new URLSearchParams(window.location.search);
+    const department_id = params.get("department_id");
+    // 戻るボタン → 部署一覧へ
+    document.getElementById("backBtn").onclick = () => {
+        window.location.href = "locations.html";
+    };
+
+    loadProcesses(department_id);
+
+</script>
+
+</body>
+</html>

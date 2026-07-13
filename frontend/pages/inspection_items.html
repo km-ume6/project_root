@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>点検項目</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+</head>
+<body>
+
+<button id="backBtn" class="back-btn">← 戻る</button>
+
+<h1>点検項目一覧</h1>
+
+<p id="selected-date-banner" class="context-date-banner hidden" aria-live="polite"></p>
+
+<button id="add-item-btn" class="add-btn">＋ 点検項目を追加</button>
+
+<div id="item-container" class="card-grid"></div>
+
+<!-- ▼ 追加ダイアログ -->
+<div id="add-item-dialog" class="dialog hidden">
+    <h2>点検項目を追加</h2>
+
+    <label>項目名</label>
+    <input id="item-name" type="text">
+
+    <label>種類</label>
+    <select id="item-type" onchange="toggleNumericFields()">
+        <option value="okng">OK / NG</option>
+        <option value="numeric">数値</option>
+        <option value="text">テキスト</option>
+    </select>
+
+    <div id="numeric-fields" class="hidden">
+        <label>最小値</label>
+        <input id="item-min" type="number">
+
+        <label>最大値</label>
+        <input id="item-max" type="number">
+    </div>
+
+    <button onclick="registerInspectionItem()">登録</button>
+    <button onclick="closeDialog()">閉じる</button>
+</div>
+
+<!-- ▼ 編集ダイアログ -->
+<div id="edit-item-dialog" class="dialog hidden">
+    <h2>点検項目を編集</h2>
+
+    <input type="hidden" id="edit-item-id">
+
+    <label>項目名</label>
+    <input id="edit-item-name" type="text">
+
+    <label>種類</label>
+    <select id="edit-item-type" onchange="toggleEditNumericFields()">
+        <option value="okng">OK / NG</option>
+        <option value="numeric">数値</option>
+        <option value="text">テキスト</option>
+    </select>
+
+    <div id="edit-numeric-fields" class="hidden">
+        <label>最小値</label>
+        <input id="edit-item-min" type="number">
+
+        <label>最大値</label>
+        <input id="edit-item-max" type="number">
+    </div>
+
+    <button onclick="saveInspectionItem()">保存</button>
+    <button onclick="closeDialog()">閉じる</button>
+</div>
+
+<script src="../js/api.js"></script>
+<script src="../js/render_cards.js"></script>
+<script>
+    const params = new URLSearchParams(window.location.search);
+    const currentEquipmentId = params.get("equipment_id");
+    const processId = params.get("process_id");
+    const departmentId = params.get("department_id");
+    const date = params.get("date");
+
+    applySelectedDateBanner("selected-date-banner", date);
+
+    if (currentEquipmentId) {
+        loadInspectionItems(currentEquipmentId);
+    }
+
+    // 編集ダイアログを開く
+    async function openEditInspectionItemDialog(itemId) {
+        const res = await fetch(`${API_BASE}/inspection_items/${itemId}`);
+        const item = await res.json();
+
+        document.getElementById("edit-item-id").value = item.id;
+        document.getElementById("edit-item-name").value = item.name;
+        document.getElementById("edit-item-type").value = item.type;
+
+        if (item.type === "numeric") {
+            document.getElementById("edit-numeric-fields").classList.remove("hidden");
+            document.getElementById("edit-item-min").value = item.min_value;
+            document.getElementById("edit-item-max").value = item.max_value;
+        } else {
+            document.getElementById("edit-numeric-fields").classList.add("hidden");
+        }
+
+        document.getElementById("edit-item-dialog").classList.remove("hidden");
+    }
+
+    // 保存
+    async function saveInspectionItem() {
+        const id = document.getElementById("edit-item-id").value;
+        const name = document.getElementById("edit-item-name").value;
+        const type = document.getElementById("edit-item-type").value;
+
+        let min = null;
+        let max = null;
+
+        if (type === "numeric") {
+            min = document.getElementById("edit-item-min").value;
+            max = document.getElementById("edit-item-max").value;
+        }
+
+        await fetch(`${API_BASE}/inspection_items/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name,
+                type,
+                min_value: min,
+                max_value: max
+            })
+        });
+
+        closeDialog();
+        loadInspectionItems(currentEquipmentId);
+    }
+
+    // 登録
+    async function registerInspectionItem() {
+        const name = document.getElementById("item-name").value;
+        const type = document.getElementById("item-type").value;
+
+        let min = null;
+        let max = null;
+
+        if (type === "numeric") {
+            min = document.getElementById("item-min").value;
+            max = document.getElementById("item-max").value;
+        }
+
+        await fetch(`${API_BASE}/inspection_items/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                equipment_id: currentEquipmentId,
+                name,
+                type,
+                min_value: min,
+                max_value: max
+            })
+        });
+
+        closeDialog();
+        // 入力欄をクリア
+        document.getElementById("item-name").value = "";
+        document.getElementById("item-type").value = "okng";
+        document.getElementById("numeric-fields").classList.add("hidden");
+        loadInspectionItems(currentEquipmentId);
+    }
+
+    // ダイアログを閉じる
+    function closeDialog() {
+        document.getElementById("add-item-dialog").classList.add("hidden");
+        document.getElementById("edit-item-dialog").classList.add("hidden");
+    }
+
+    // 数値フィールド表示切替（追加）
+    function toggleNumericFields() {
+        const type = document.getElementById("item-type").value;
+        const numericFields = document.getElementById("numeric-fields");
+
+        if (type === "numeric") {
+            numericFields.classList.remove("hidden");
+        } else {
+            numericFields.classList.add("hidden");
+        }
+    }
+
+    // 数値フィールド表示切替（編集）
+    function toggleEditNumericFields() {
+        const type = document.getElementById("edit-item-type").value;
+        const numericFields = document.getElementById("edit-numeric-fields");
+
+        if (type === "numeric") {
+            numericFields.classList.remove("hidden");
+        } else {
+            numericFields.classList.add("hidden");
+        }
+    }
+
+    // 追加ボタン
+    document.getElementById("add-item-btn").onclick = () => {
+        document.getElementById("add-item-dialog").classList.remove("hidden");
+    };
+
+    // 戻るボタン
+    document.getElementById("backBtn").onclick = () => {
+        let url = `equipment_detail.html?equipment_id=${encodeURIComponent(currentEquipmentId)}`;
+        const params = [];
+        if (processId) params.push(`process_id=${encodeURIComponent(processId)}`);
+        if (departmentId) params.push(`department_id=${encodeURIComponent(departmentId)}`);
+        if (date) params.push(`date=${encodeURIComponent(date)}`);
+        if (params.length > 0) url += "&" + params.join("&");
+        window.location.href = url;
+    };
+</script>
+
+</body>
+</html>

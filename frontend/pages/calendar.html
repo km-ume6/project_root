@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>点検カレンダー</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+
+    <link rel="stylesheet" href="../css/base.css">
+
+    <style>
+        /* 記号と未実施設備を中央に表示 */
+        .fc-daygrid-event {
+            display: flex !important;
+            flex-direction: column;
+            justify-content: center !important;
+            align-items: center !important;
+            border: none !important;
+            background: none !important;
+        }
+        .symbol {
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .notdone {
+            font-size: 10px;
+            text-align: center;
+            line-height: 1.1;
+        }
+    </style>
+</head>
+
+<body>
+<button id="backBtn" class="back-btn">← 戻る</button>
+<button id="exportBtn" class="export-btn">結果出力</button>
+
+<h1>点検カレンダー</h1>
+
+<div id="calendar"></div>
+<div id="calendar-tooltip"
+     style="
+        position:absolute;
+        display:none;
+        background:#fff;
+        border:1px solid #ccc;
+        padding:8px;
+        border-radius:6px;
+        box-shadow:0 2px 6px rgba(0,0,0,0.25);
+        z-index:9999;
+        font-size:12px;
+     ">
+</div>
+<dialog id="exportDialog" class="export-dialog">
+    <h2>月次点検結果の出力</h2>
+
+    <div id="equipmentList" class="equipment-list">
+        <!-- JSでラジオボタンを生成 -->
+    </div>
+
+    <div class="dialog-buttons">
+        <button id="startExportBtn" class="primary">出力開始</button>
+        <button id="cancelExportBtn" class="secondary">キャンセル</button>
+    </div>
+    <div class="period-select">
+    <label>開始月：
+        <input type="month" id="startMonth">
+    </label>
+
+    <label>終了月：
+        <input type="month" id="endMonth">
+    </label>
+</div>
+
+</dialog>
+
+<script src="../js/api.js"></script>
+<script>
+// ユーティリティ：ローカル日付を YYYY-MM-DD にする
+function formatLocalDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+}
+
+const params = new URLSearchParams(window.location.search);
+const processId = params.get("process_id");
+
+// 戻るボタン：今日（ローカル）を targetDate にする（必要なら別の基準に変更）
+const todayLocal = new Date();
+const targetDateForBack = formatLocalDate(todayLocal);
+const departmentId = params.get("department_id");
+
+
+document.getElementById("backBtn").onclick = () => {
+    const deptParam = departmentId ? `?department_id=${encodeURIComponent(departmentId)}` : "";
+    window.location.href = `./processes.html${deptParam}`;
+};
+
+document.addEventListener("DOMContentLoaded", async () => {
+
+    const calendarEl = document.getElementById("calendar");
+
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: "dayGridMonth",
+        locale: "ja",
+        height: "auto",
+        timeZone: "local",
+
+        events: async (info, successCallback, failureCallback) => {
+            try {
+                const events = await loadCalendarEventsForRange(info.start, info.end);
+                successCallback(events);
+            } catch (err) {
+                console.error("カレンダーイベント取得エラー:", err);
+                if (failureCallback) failureCallback(err);
+                else successCallback([]);
+            }
+        },
+
+
+        eventContent: (arg) => {
+            const symbol = arg.event.title;
+            const notDone = arg.event.extendedProps.notDone || [];
+
+            const wrapper = document.createElement("div");
+
+           wrapper.innerHTML = `
+                <div class="symbol" data-status="${symbol}">${symbol}</div>
+                
+            `;
+
+            return { domNodes: [wrapper] };
+        },
+
+        dayCellDidMount: (info) => {
+            info.el.style.cursor = "pointer";
+
+            info.el.addEventListener("click", () => {
+                // ローカル日付を使う（UTC変換しない）
+                const date = formatLocalDate(info.date);
+                window.location.href =
+                    `./equipments.html?process_id=${encodeURIComponent(processId)}&department_id=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(date)}`;
+            });
+        },
+
+        eventClick: (info) => {
+            // FullCalendar の event.startStr は YYYY-MM-DD 形式のはず
+            const date = info.event.startStr;
+            window.location.href =
+                    `./equipments.html?process_id=${encodeURIComponent(processId)}&department_id=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(date)}`;
+        },
+
+        eventMouseEnter: function(info) {
+            const items = info.event.extendedProps.notDone;
+            if (!items || items.length === 0) return;
+
+            const tooltip = document.getElementById("calendar-tooltip");
+            tooltip.innerHTML = items.map(i => `未点検：${i}`).join("<br>");
+            tooltip.style.display = "block";
+            tooltip.style.left = info.jsEvent.pageX + 10 + "px";
+            tooltip.style.top = info.jsEvent.pageY + 10 + "px";
+        },
+
+        eventMouseLeave: function() {
+            const tooltip = document.getElementById("calendar-tooltip");
+            tooltip.style.display = "none";
+        }
+
+    });
+
+    calendar.render();
+});
+async function loadEquipments() {
+    const res = await fetch(`${API_BASE}/equipments/?process_id=${processId}&department_id=${departmentId}`);
+    const equipments = await res.json();
+
+    const list = document.getElementById("equipmentList");
+    list.innerHTML = ""; // 初期化
+
+    equipments.forEach(eq => {
+        const div = document.createElement("div");
+        div.className = "equipment-radio";
+
+        const label = document.createElement("label");
+        label.dataset.eqName = eq.name ?? "";
+        label.dataset.eqUnit = eq.unit_no ?? "";
+        label.dataset.eqMgmt = eq.management_no ?? "";
+
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "equipment";
+        radio.value = eq.id;
+
+        label.appendChild(radio);
+        label.append(` ${eq.name}（${eq.unit_no ?? "-"}号機）`);
+        div.appendChild(label);
+        list.appendChild(div);
+    });
+}
+
+document.getElementById("cancelExportBtn").onclick = () => {
+    document.getElementById("exportDialog").close();
+};
+
+document.getElementById("startExportBtn").onclick = () => {
+    const selectedRadio = document.querySelector("input[name='equipment']:checked");
+    if (!selectedRadio) {
+        alert("設備を選択してください");
+        return;
+    }
+
+    const equipmentId = selectedRadio.value;
+    const startMonth = document.getElementById("startMonth").value;
+    const endMonth = document.getElementById("endMonth").value;
+
+    if (!startMonth || !endMonth) {
+        alert("期間を指定してください");
+        return;
+    }
+
+    const eqLabel = selectedRadio.closest("label");
+    const eqName = eqLabel?.dataset?.eqName || "";
+    const eqUnit = eqLabel?.dataset?.eqUnit || "";
+    const eqMgmt = eqLabel?.dataset?.eqMgmt || "";
+
+    const url = `./export_results.html?equipment_id=${encodeURIComponent(equipmentId)}&start_month=${encodeURIComponent(startMonth)}&end_month=${encodeURIComponent(endMonth)}&process_id=${encodeURIComponent(processId || "")}&department_id=${encodeURIComponent(departmentId || "")}&equipment_name=${encodeURIComponent(eqName)}&unit_no=${encodeURIComponent(eqUnit)}&management_no=${encodeURIComponent(eqMgmt)}`;
+    window.location.href = url;
+};
+
+document.getElementById("exportBtn").onclick = () => {
+    loadEquipments();
+
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+
+    document.getElementById("startMonth").value = `${y}-${m}`;
+    document.getElementById("endMonth").value = `${y}-${m}`;
+
+    document.getElementById("exportDialog").showModal();
+};
+
+/** 画面上に見えている日付範囲（info.start〜info.end、end は翌日0時） */
+async function loadCalendarEventsForRange(rangeStart, rangeEnd) {
+    const first = new Date(rangeStart);
+    first.setHours(0, 0, 0, 0);
+    const endExclusive = new Date(rangeEnd);
+    endExclusive.setHours(0, 0, 0, 0);
+    const last = new Date(endExclusive);
+    last.setDate(last.getDate() - 1);
+
+    const equipments = await fetch(
+        `${API_BASE}/equipments/?process_id=${processId}`
+    ).then(r => r.json());
+
+    // 点検項目一覧
+    const itemsList = await Promise.all(
+        equipments.map(eq =>
+            fetch(`${API_BASE}/inspection_items/?equipment_id=${encodeURIComponent(eq.id)}`)
+                .then(r => r.json())
+        )
+    );
+
+    const itemsMap = {};
+    for (let i = 0; i < equipments.length; i++) {
+        const eq = equipments[i];
+        const items = itemsList[i];
+        itemsMap[eq.id] = {};
+        items.forEach(item => {
+            itemsMap[eq.id][item.id] = {
+                type: item.type,
+                min_value: item.min_value,
+                max_value: item.max_value
+            };
+        });
+    }
+
+    // 点検結果（全件）
+    const resultsList = await Promise.all(
+        equipments.map(eq =>
+            fetch(`${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(eq.id)}`)
+                .then(r => r.json())
+        )
+    );
+
+    const allResults = {};
+    resultsList.forEach(results => {
+        results.forEach(r => {
+            const dayKey = String(r.date || "").split("T")[0];
+            if (!dayKey) return;
+            if (!allResults[dayKey]) allResults[dayKey] = [];
+            allResults[dayKey].push(r);
+        });
+    });
+
+    const rangeFrom = formatLocalDate(first);
+    const rangeTo = formatLocalDate(last);
+
+    const skipByDate = {};
+    const useByDate = {};
+    const todayYmd = formatLocalDate(new Date());
+    if (processId && rangeFrom <= todayYmd && todayYmd <= rangeTo) {
+        try {
+            await applyAutoSkipFromPreviousDay(processId, todayYmd);
+        } catch (e) {
+            console.warn("前日未点検の自動スキップに失敗", e);
+        }
+    }
+    try {
+        const [skips, uses] = await Promise.all([
+            fetchEquipmentSkipsRange(processId, rangeFrom, rangeTo),
+            fetchEquipmentUsesRange(processId, rangeFrom, rangeTo),
+        ]);
+        skips.forEach(s => {
+            const d = s.date.split("T")[0];
+            if (!skipByDate[d]) skipByDate[d] = new Set();
+            skipByDate[d].add(String(s.equipment_id));
+        });
+        uses.forEach(u => {
+            const d = u.date.split("T")[0];
+            if (!useByDate[d]) useByDate[d] = new Set();
+            useByDate[d].add(String(u.equipment_id));
+        });
+    } catch (e) {
+        console.warn("使用／不使用（月）の取得に失敗", e);
+    }
+
+    function isResultOK(value) {
+        return String(value).toUpperCase() !== "NG";
+    }
+
+    function getStatusForDay(dateStr, equipments, allResults, itemsMap) {
+        const jstToday = formatLocalDate(new Date());
+        if (dateStr > jstToday) {
+            return { status: "－", notDone: [] };
+        }
+
+        const skipIds = skipByDate[dateStr] || new Set();
+        const useIds = useByDate[dateStr] || new Set();
+        const targets = equipments.filter(eq => !isEquipmentSkippedToday(eq, skipIds, useIds));
+
+        if (targets.length === 0) {
+            return { status: "－", notDone: [] };
+        }
+
+        const results = allResults[dateStr] || [];
+        const doneEquipmentIds = new Set(results.map(r => String(r.equipment_id)));
+
+        let dayHasNG = false;
+        const notDoneSet = new Set();
+
+        targets.forEach(eq => {
+            const eqIdStr = String(eq.id);
+
+            if (!doneEquipmentIds.has(eqIdStr)) {
+                notDoneSet.add(eq.name);
+                return;
+            }
+
+            const eqResults = results.filter(r => String(r.equipment_id) === eqIdStr);
+
+            let eqHasValue = false;
+            let eqHasNG = false;
+
+            eqResults.forEach(r => {
+                const v = r.value;
+
+                if (v === null || v === "") return;
+
+                eqHasValue = true;
+
+                const itemInfo = itemsMap[eq.id] && itemsMap[eq.id][r.item_id];
+                if (!isResultOK(v, itemInfo)) {
+                    eqHasNG = true;
+                }
+            });
+
+            if (!eqHasValue) notDoneSet.add(eq.name);
+            if (eqHasNG) dayHasNG = true;
+        });
+
+        const notDoneList = Array.from(notDoneSet);
+
+        if (dayHasNG) return { status: "×", notDone: notDoneList };
+        if (notDoneList.length > 0) return { status: "△", notDone: notDoneList };
+        return { status: "〇", notDone: [] };
+    }
+
+    const colorMap = {
+        "〇": "#4a90e2",
+        "×": "#e24a4a",
+        "△": "#e2c84a",
+        "－": "#999999"
+    };
+
+    const events = [];
+
+    for (let d = new Date(first.getTime()); d <= last; d.setDate(d.getDate() + 1)) {
+        const dateStr = formatLocalDate(d);
+        const { status, notDone } = getStatusForDay(dateStr, equipments, allResults, itemsMap);
+
+        events.push({
+            title: status,
+            start: dateStr,
+            allDay: true,
+            display: "block",
+            backgroundColor: colorMap[status],
+            textColor: "black",
+            extendedProps: {
+                notDone: notDone
+            }
+        });
+    }
+
+    return events;
+}
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>点検結果</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <style>
+        body {
+            padding: 12px 12px 24px;
+            background: transparent;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .header {
+            background: var(--color-surface);
+            padding: 16px 18px;
+            border-radius: var(--radius-lg);
+            margin-bottom: 14px;
+            border: 1px solid var(--color-border);
+            box-shadow: var(--shadow-md);
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: clamp(1rem, 3.5vw, 1.35rem);
+            font-weight: 700;
+            color: var(--color-text);
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .header-meta {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            margin-bottom: 10px;
+        }
+
+        .export-filters {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px 10px;
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            background: #f8fafc;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+        }
+
+        .export-filters .filter-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .export-filters .filter-label {
+            color: var(--color-text-muted);
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .export-filters select,
+        .export-filters input[type="month"] {
+            padding: 4px 8px;
+            font-size: 12px;
+            font-family: var(--font-sans);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            background: var(--color-surface);
+            box-sizing: border-box;
+            min-height: 30px;
+        }
+
+        .export-filters select {
+            width: min(220px, 100%);
+            max-width: 220px;
+            cursor: pointer;
+        }
+
+        .export-filters input[type="month"] {
+            width: 8.5rem;
+            min-width: 0;
+        }
+
+        .btn-apply {
+            padding: 4px 12px;
+            border: none;
+            border-radius: var(--radius-sm);
+            background: var(--color-primary);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            min-height: 30px;
+            white-space: nowrap;
+        }
+
+        .btn-apply:hover {
+            filter: brightness(1.06);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .controls button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: var(--font-sans);
+            transition: filter 0.15s ease;
+        }
+
+        .controls button:hover {
+            filter: brightness(1.06);
+        }
+
+        .btn-print {
+            background: var(--color-primary);
+            color: white;
+        }
+
+        .btn-pdf {
+            background: var(--color-danger);
+            color: white;
+        }
+
+        .btn-excel {
+            background: var(--color-success);
+            color: white;
+        }
+
+        .btn-back {
+            background: #64748b;
+            color: white;
+        }
+
+        .table-container {
+            background: var(--color-surface);
+            padding: 12px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border);
+            box-shadow: var(--shadow-md);
+            overflow-x: auto;
+            overflow-y: auto;
+            flex: 1 0 auto;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 340px);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        th, td {
+            padding: 5px 4px;
+            text-align: center;
+            border: 1px solid #ddd;
+            word-break: break-word;
+        }
+
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            font-size: 10px;
+        }
+
+        .item-name {
+            text-align: left;
+            background: #f9f9f9;
+            font-weight: 500;
+            min-width: 150px;
+            max-width: 150px;
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            font-size: 9px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        thead .item-name {
+            background: #f0f0f0;
+            z-index: 11;
+        }
+
+        .spec-info {
+            font-size: 8px;
+            color: #666;
+            line-height: 1.2;
+            position: sticky;
+            left: 150px;
+            background: #f9f9f9;
+            z-index: 5;
+            min-width: 80px;
+            max-width: 80px;
+            padding: 3px 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        thead .spec-info {
+            background: #f0f0f0;
+            z-index: 11;
+        }
+
+        .result-ok {
+            background-color: #e0f7e9;
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .result-ng {
+            background-color: #ffe5e5;
+            color: #e24a4a;
+            font-weight: bold;
+        }
+
+        .result-empty {
+            background-color: #f0f0f0;
+            color: #999;
+        }
+
+        .result-numeric {
+            font-weight: 500;
+        }
+
+        .export-info {
+            margin-top: 12px;
+            padding: 10px;
+            background: #e8f4f8;
+            border-left: 4px solid #4a90e2;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #333;
+            flex-shrink: 0;
+            line-height: 1.4;
+        }
+
+        @media print {
+            .controls,
+            .export-filters {
+                display: none;
+            }
+            body {
+                background: white;
+                padding: 0;
+            }
+            .header {
+                box-shadow: none;
+                border-bottom: 2px solid #ccc;
+            }
+            .table-container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1 id="pageTitle">点検結果</h1>
+
+    <div class="export-filters">
+        <div class="filter-field">
+            <span class="filter-label">設備</span>
+            <select id="equipmentSelect" title="出力する設備" aria-label="出力する設備">
+                <option value="">読み込み中…</option>
+            </select>
+        </div>
+        <div class="filter-field">
+            <span class="filter-label">開始</span>
+            <input type="month" id="startMonthInput" title="開始月" aria-label="開始月">
+        </div>
+        <div class="filter-field">
+            <span class="filter-label">終了</span>
+            <input type="month" id="endMonthInput" title="終了月" aria-label="終了月">
+        </div>
+        <button type="button" class="btn-apply" id="applyFilterBtn">更新</button>
+    </div>
+
+    <p class="header-meta">出力日時：<span id="exportDate">-</span></p>
+
+    <div class="controls">
+        <button class="btn-print" onclick="window.print()">🖨️ 印刷</button>
+        <button class="btn-pdf" onclick="exportPDF()">📄 PDF出力</button>
+        <button class="btn-excel" onclick="exportExcel()">📊 Excel出力</button>
+        <button class="btn-back" onclick="goBack()">← 戻る</button>
+    </div>
+</div>
+
+<div id="matrix" class="table-container">
+    <p style="text-align: center; color: #999;">読み込み中...</p>
+</div>
+
+<div class="export-info">
+    <strong>ℹ️ ISO監査対応情報</strong><br>
+    このマトリックスは設備の日常点検結果を時系列で表示します。〇は規格内、×は規格外を示します。
+</div>
+
+<script src="../js/api.js"></script>
+<script>
+    // URLパラメータ取得
+    const params = new URLSearchParams(window.location.search);
+    const processId = params.get("process_id");
+    const departmentId = params.get("department_id");
+
+    let currentEquipmentId = params.get("equipment_id");
+    let currentStartMonth = params.get("start_month");
+    let currentEndMonth = params.get("end_month");
+    let equipmentsList = [];
+
+    // hidden span for PDF/CSV filename (kept for export functions)
+    const equipmentNameHidden = document.createElement("span");
+    equipmentNameHidden.id = "equipmentName";
+    equipmentNameHidden.hidden = true;
+    document.body.appendChild(equipmentNameHidden);
+
+    // 日付フォーマット
+    function formatLocalDate(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+    }
+
+    function formatMonthLabel(ym) {
+        if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || "-";
+        const [y, m] = ym.split("-").map(Number);
+        return `${y}年${m}月`;
+    }
+
+    function formatEquipmentLabel(equipment) {
+        if (!equipment) return "設備未選択";
+        const name = equipment.name || "（名称未設定）";
+        const unit = equipment.unit_no ?? "-";
+        return `${name}（${unit}号機）`;
+    }
+
+    function updatePageTitle(equipment) {
+        const label = formatEquipmentLabel(equipment);
+        const periodPart = currentStartMonth === currentEndMonth
+            ? formatMonthLabel(currentStartMonth)
+            : `${formatMonthLabel(currentStartMonth)}～${formatMonthLabel(currentEndMonth)}`;
+        const titleText = `${periodPart} ${label} 点検結果`;
+        document.getElementById("pageTitle").textContent = titleText;
+        document.title = titleText;
+    }
+
+    function applyEquipmentDisplay(equipment) {
+        const label = formatEquipmentLabel(equipment);
+        document.getElementById("equipmentName").textContent = label;
+        updatePageTitle(equipment);
+    }
+
+    function syncFilterInputs() {
+        document.getElementById("startMonthInput").value = currentStartMonth || "";
+        document.getElementById("endMonthInput").value = currentEndMonth || "";
+        if (currentEquipmentId) {
+            document.getElementById("equipmentSelect").value = currentEquipmentId;
+        }
+    }
+
+    function updateUrlParams() {
+        const p = new URLSearchParams();
+        if (processId) p.set("process_id", processId);
+        if (departmentId) p.set("department_id", departmentId);
+        if (currentEquipmentId) p.set("equipment_id", currentEquipmentId);
+        if (currentStartMonth) p.set("start_month", currentStartMonth);
+        if (currentEndMonth) p.set("end_month", currentEndMonth);
+        history.replaceState(null, "", `${window.location.pathname}?${p.toString()}`);
+    }
+
+    function getEquipmentFromList(id) {
+        return equipmentsList.find((e) => String(e.id) === String(id));
+    }
+
+    async function loadEquipmentsList() {
+        if (!processId) throw new Error("工程（process_id）が指定されていません");
+        const res = await fetch(`${API_BASE}/equipments/?process_id=${encodeURIComponent(processId)}`);
+        if (!res.ok) throw new Error("設備一覧の取得に失敗しました");
+        equipmentsList = await res.json();
+
+        const sel = document.getElementById("equipmentSelect");
+        sel.innerHTML = "";
+        if (equipmentsList.length === 0) {
+            sel.innerHTML = '<option value="">設備がありません</option>';
+            return;
+        }
+
+        equipmentsList.forEach((eq) => {
+            const opt = document.createElement("option");
+            opt.value = eq.id;
+            opt.textContent = formatEquipmentLabel(eq);
+            sel.appendChild(opt);
+        });
+
+        if (!currentEquipmentId || !getEquipmentFromList(currentEquipmentId)) {
+            currentEquipmentId = String(equipmentsList[0].id);
+        }
+        sel.value = currentEquipmentId;
+    }
+
+    async function refreshMatrixView() {
+        if (!currentEquipmentId) {
+            document.getElementById("matrix").innerHTML =
+                "<p style='text-align:center;color:#999;'>設備を選択してください</p>";
+            return;
+        }
+        if (!currentStartMonth || !currentEndMonth) {
+            throw new Error("出力期間を指定してください");
+        }
+        if (currentStartMonth > currentEndMonth) {
+            throw new Error("開始月は終了月以前にしてください");
+        }
+
+        const eq = getEquipmentFromList(currentEquipmentId);
+        if (eq) {
+            applyEquipmentDisplay(eq);
+        } else {
+            const eqRes = await fetch(`${API_BASE}/equipments/${encodeURIComponent(currentEquipmentId)}`);
+            if (!eqRes.ok) throw new Error("設備情報の取得に失敗しました");
+            const equipment = await eqRes.json();
+            if (equipment.error) throw new Error(equipment.error);
+            applyEquipmentDisplay(equipment);
+        }
+
+        document.getElementById("exportDate").textContent = formatLocalDate(new Date());
+        document.getElementById("matrix").innerHTML = "<p style='text-align:center;color:#999;'>読み込み中…</p>";
+
+        await generateMatrix();
+        updateUrlParams();
+    }
+
+    // 初期化
+    async function init() {
+        try {
+            const today = new Date();
+            const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+            if (!currentStartMonth) currentStartMonth = defaultMonth;
+            if (!currentEndMonth) currentEndMonth = defaultMonth;
+
+            syncFilterInputs();
+            document.getElementById("exportDate").textContent = formatLocalDate(new Date());
+
+            await loadEquipmentsList();
+            syncFilterInputs();
+            await refreshMatrixView();
+        } catch (err) {
+            console.error("初期化エラー:", err);
+            document.getElementById("pageTitle").textContent = "点検結果";
+            document.getElementById("matrix").innerHTML =
+                `<p style="color:red;text-align:center;">${escapeHtml(err.message || "データ読み込みエラー")}</p>`;
+        }
+    }
+
+    document.getElementById("equipmentSelect").addEventListener("change", async (e) => {
+        currentEquipmentId = e.target.value;
+        if (!currentEquipmentId) return;
+        try {
+            await refreshMatrixView();
+        } catch (err) {
+            console.error(err);
+            alert(err.message || "表示の更新に失敗しました");
+        }
+    });
+
+    document.getElementById("applyFilterBtn").addEventListener("click", async () => {
+        currentStartMonth = document.getElementById("startMonthInput").value;
+        currentEndMonth = document.getElementById("endMonthInput").value;
+        currentEquipmentId = document.getElementById("equipmentSelect").value;
+        try {
+            await refreshMatrixView();
+        } catch (err) {
+            console.error(err);
+            alert(err.message || "表示の更新に失敗しました");
+        }
+    });
+
+    async function generateMatrix() {
+        const itemsRes = await fetch(`${API_BASE}/inspection_items/?equipment_id=${encodeURIComponent(currentEquipmentId)}`);
+        const items = await itemsRes.json();
+
+        const resultsRes = await fetch(`${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(currentEquipmentId)}`);
+        const results = await resultsRes.json();
+
+        const startDate = new Date(currentStartMonth + "-01");
+        const endDate = new Date(currentEndMonth + "-01");
+        endDate.setMonth(endDate.getMonth() + 1);
+        endDate.setDate(0); // 月末
+
+        // 指定期間の全ての日付を生成
+        const dates = [];
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+            const dateStr = formatLocalDate(d);
+            dates.push(dateStr);
+        }
+
+        // 日付をソート
+        const uniqueDates = dates.sort();
+
+        // テーブル生成
+        let tableHtml = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>点検項目</th>
+                        <th>規格値</th>
+        `;
+
+        uniqueDates.forEach(date => {
+            // YYYY-MM-DD → M/D 形式に変換（先頭の0を削除）
+            const [year, month, day] = date.split('-');
+            const shortDate = `${parseInt(month)}/${parseInt(day)}`;
+            tableHtml += `<th>${shortDate}</th>`;
+        });
+
+        tableHtml += `</tr></thead><tbody>`;
+
+        // 各点検項目ごとに行を生成
+        items.forEach(item => {
+            tableHtml += `<tr>
+                <td class="item-name">${escapeHtml(item.name)}</td>
+                <td class="spec-info">`;
+
+            // 規格値情報
+            if (item.type === "okng") {
+                tableHtml += "OK/NG";
+            } else if (item.type === "numeric") {
+                if (item.min_value !== null || item.max_value !== null) {
+                    const min = item.min_value ?? "-";
+                    const max = item.max_value ?? "-";
+                    tableHtml += `${min} ～ ${max}`;
+                } else {
+                    tableHtml += "数値";
+                }
+            } else if (item.type === "text") {
+                tableHtml += "テキスト";
+            }
+
+            tableHtml += `</td>`;
+
+            // 各日付の結果
+            uniqueDates.forEach(date => {
+                const result = results.find(r =>
+                    Number(r.item_id) === Number(item.id) &&
+                    String(r.date || "").split("T")[0] === date
+                );
+
+                if (result) {
+                    const value = result.value;
+                    let cellClass = "result-numeric";
+                    let cellText = value;
+
+                    if (item.type === "okng") {
+                        if (String(value).toUpperCase() === "NG") {
+                            cellClass = "result-ng";
+                            cellText = "×";
+                        } else {
+                            cellClass = "result-ok";
+                            cellText = "〇";
+                        }
+                    } else if (item.type === "numeric") {
+                        // 規格値との比較
+                        const isValid = 
+                            (item.min_value === null || Number(value) >= item.min_value) &&
+                            (item.max_value === null || Number(value) <= item.max_value);
+
+                        if (isValid) {
+                            cellClass = "result-ok";
+                            cellText = value;
+                        } else {
+                            cellClass = "result-ng";
+                            cellText = value;
+                        }
+                    }
+
+                    tableHtml += `<td class="${cellClass}">${escapeHtml(cellText)}</td>`;
+                } else {
+                    tableHtml += `<td class="result-empty">-</td>`;
+                }
+            });
+
+            tableHtml += `</tr>`;
+        });
+
+        tableHtml += `</tbody></table>`;
+
+        document.getElementById("matrix").innerHTML = tableHtml;
+
+        // テーブルを1ページに収まるよう自動スケール調整
+        adjustTableScale();
+    }
+
+    function adjustTableScale() {
+        const table = document.querySelector("table");
+        if (!table) return;
+
+        const rowCount = table.querySelectorAll("tbody tr").length;
+        const colCount = table.querySelectorAll("thead th").length;
+
+        // 項目数と列数に応じてスケール計算
+        let fontSize = 11;
+        let padding = "5px 4px";
+        let lineHeight = 1.4;
+        let itemNameWidth = "150px";
+        let specInfoWidth = "80px";
+        let specInfoLeft = "150px";
+
+        // 行が多い場合（30行以上）
+        if (rowCount >= 30) {
+            fontSize = 8;
+            padding = "3px 2px";
+            lineHeight = 1.2;
+            itemNameWidth = "120px";
+            specInfoWidth = "70px";
+            specInfoLeft = "120px";
+        }
+        // 行が20以上30未満
+        else if (rowCount >= 20) {
+            fontSize = 9;
+            padding = "4px 3px";
+            lineHeight = 1.3;
+            itemNameWidth = "135px";
+            specInfoWidth = "75px";
+            specInfoLeft = "135px";
+        }
+        // 行が15以上20未満
+        else if (rowCount >= 15) {
+            fontSize = 10;
+            padding = "4px 3px";
+            lineHeight = 1.3;
+            itemNameWidth = "145px";
+            specInfoWidth = "78px";
+            specInfoLeft = "145px";
+        }
+
+        // テーブルスタイル適用
+        table.style.fontSize = fontSize + "px";
+        table.style.lineHeight = lineHeight;
+
+        // セルパディング適用
+        document.querySelectorAll("table th, table td").forEach(cell => {
+            cell.style.padding = padding;
+        });
+
+        // 左側の列幅を調整
+        document.querySelectorAll(".item-name").forEach(cell => {
+            cell.style.minWidth = itemNameWidth;
+            cell.style.maxWidth = itemNameWidth;
+            cell.style.left = "0";
+        });
+
+        document.querySelectorAll(".spec-info").forEach(cell => {
+            cell.style.minWidth = specInfoWidth;
+            cell.style.maxWidth = specInfoWidth;
+            cell.style.left = specInfoLeft;
+        });
+
+        console.log(`テーブル自動スケール: ${rowCount}行 × ${colCount}列 → fontSize: ${fontSize}px, itemName: ${itemNameWidth}`);
+    }
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    async function exportPDF() {
+        try {
+            // html2canvas と jsPDF を動的に読み込む
+            if (!window.html2canvas) {
+                const script1 = document.createElement("script");
+                script1.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                document.head.appendChild(script1);
+                await new Promise((resolve, reject) => {
+                    script1.onload = resolve;
+                    script1.onerror = reject;
+                });
+            }
+
+            if (!window.jsPDF) {
+                const script2 = document.createElement("script");
+                script2.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+                document.head.appendChild(script2);
+                await new Promise((resolve, reject) => {
+                    script2.onload = resolve;
+                    script2.onerror = reject;
+                });
+            }
+
+            // 画面全体（ヘッダー + テーブル）をキャプチャ
+            const wholePage = document.querySelector("body");
+            const canvas = await html2canvas(wholePage, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false
+            });
+
+            // PDF生成
+            const imgData = canvas.toDataURL("image/png");
+            const pageWidth = canvas.width;
+            const pageHeight = canvas.height;
+            const ratio = pageWidth / pageHeight;
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                orientation: ratio > 1.4 ? "landscape" : "portrait",
+                unit: "mm",
+                format: "a4",
+                compress: true
+            });
+
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (pdfWidth / pageWidth) * pageHeight;
+
+            pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+
+            // 複数ページ対応
+            let heightLeft = pdfHeight - pdf.internal.pageSize.getHeight();
+            let position = 0;
+
+            while (heightLeft >= 0) {
+                position = heightLeft - pdfHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, "PNG", 0, position, pdfWidth, pdfHeight);
+                heightLeft -= pdf.internal.pageSize.getHeight();
+            }
+
+            const equipmentName = document.getElementById("equipmentName").textContent || "inspection";
+            const filename = `inspection_results_${equipmentName}_${new Date().toISOString().split('T')[0]}.pdf`;
+            pdf.save(filename);
+            console.log("PDF出力成功:", filename);
+        } catch (err) {
+            console.error("PDF出力エラー:", err);
+            alert(`PDF出力に失敗しました: ${err.message}`);
+        }
+    }
+
+    async function exportExcel() {
+        try {
+            const table = document.querySelector("table");
+            if (!table) {
+                alert("テーブルが見つかりません");
+                return;
+            }
+
+            // テーブルをCSV形式で変換
+            let csv = [];
+            const rows = table.querySelectorAll("tr");
+            
+            rows.forEach((row, rowIndex) => {
+                const cells = row.querySelectorAll("td, th");
+                const rowData = [];
+                
+                cells.forEach(cell => {
+                    let text = cell.textContent.trim();
+                    // CSV 内の改行やクォートをエスケープ
+                    if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+                        text = `"${text.replace(/"/g, '""')}"`;
+                    }
+                    rowData.push(text);
+                });
+                
+                csv.push(rowData.join(","));
+            });
+
+            const csvContent = csv.join("\n");
+
+            // 設備名と日付を含むファイル名生成
+            const equipmentName = document.getElementById("equipmentName").textContent || "inspection";
+            const today = new Date().toISOString().split('T')[0];
+            const filename = `inspection_results_${equipmentName}_${today}.csv`;
+
+            // UTF-8 BOM を追加してExcelで文字化けを防止
+            const BOM = new Uint8Array([0xEF, 0xBB, 0xBF]); // UTF-8 BOM
+            const encoder = new TextEncoder();
+            const csvBytes = encoder.encode(csvContent);
+            const csvWithBOM = new Uint8Array(BOM.length + csvBytes.length);
+            csvWithBOM.set(BOM, 0);
+            csvWithBOM.set(csvBytes, BOM.length);
+
+            // CSV をダウンロード
+            const blob = new Blob([csvWithBOM], { type: "text/csv;charset=utf-8" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            
+            console.log("CSV出力成功（Excelで開く）:", filename);
+        } catch (err) {
+            console.error("CSV出力エラー:", err);
+            alert(`ファイル出力に失敗しました: ${err.message}`);
+        }
+    }
+
+    function goBack() {
+        if (processId && departmentId) {
+            window.location.href = `./calendar.html?process_id=${encodeURIComponent(processId)}&department_id=${encodeURIComponent(departmentId)}`;
+        } else {
+            history.back();
+        }
+    }
+
+    // ページ読み込み時に初期化
+    document.addEventListener("DOMContentLoaded", init);
+</script>
+
+</body>
+</html>

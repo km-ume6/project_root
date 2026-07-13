@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>設備詳細</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+</head>
+<body class="equipment-detail">
+
+
+
+<button id="backBtn" class="back-btn">← 戻る</button>
+
+<h1 id="eq-name">設備名</h1>
+
+<p id="selected-date-banner" class="context-date-banner hidden" aria-live="polite"></p>
+
+<p>号機: <span id="eq-unit"></span></p>
+<p>管理番号: <span id="eq-management"></span></p>
+
+<label id="skipTodayRow" class="equip-skip-row detail-skip-row hidden">
+    <input type="checkbox" id="skipToday">
+    本日は使用しない
+</label>
+<p id="skipTodayNote" class="equip-skip-note hidden"></p>
+
+<!-- 使用したボタン -->
+<button id="useTodayBtn" class="use-btn">点検を開始する</button>
+
+<!-- ▼ 点検項目一覧 ▼ -->
+<h2>点検項目</h2>
+<div class="page-toolbar">
+    <button id="add-item-btn" class="add-btn">＋ 項目追加</button>
+    <button id="manage-items-btn" class="add-btn add-btn--secondary">📋 点検項目を管理</button>
+</div>
+
+<div id="item-container"></div>
+
+<!-- ▼ 追加ダイアログ -->
+<div id="add-item-dialog" class="dialog hidden">
+    <h2>点検項目を追加</h2>
+
+    <label>項目名</label>
+    <input id="item-name" type="text">
+
+    <label>種類</label>
+    <select id="item-type" onchange="toggleNumericFields()">
+        <option value="okng">OK / NG</option>
+        <option value="numeric">数値</option>
+        <option value="text">テキスト</option>
+    </select>
+
+    <div id="numeric-fields" class="hidden">
+        <label>最小値</label>
+        <input id="item-min" type="number">
+
+        <label>最大値</label>
+        <input id="item-max" type="number">
+    </div>
+
+    <button onclick="registerInspectionItem()">登録</button>
+    <button onclick="closeDialog()">閉じる</button>
+</div>
+
+<!-- ▼ 編集ダイアログ -->
+<div id="edit-item-dialog" class="dialog hidden">
+    <h2>点検項目を編集</h2>
+
+    <input type="hidden" id="edit-item-id">
+
+    <label>項目名</label>
+    <input id="edit-item-name" type="text">
+
+    <label>種類</label>
+    <select id="edit-item-type" onchange="toggleEditNumericFields()">
+        <option value="okng">OK / NG</option>
+        <option value="numeric">数値</option>
+        <option value="text">テキスト</option>
+    </select>
+
+    <div id="edit-numeric-fields" class="hidden">
+        <label>最小値</label>
+        <input id="edit-item-min" type="number">
+
+        <label>最大値</label>
+        <input id="edit-item-max" type="number">
+    </div>
+
+    <button onclick="saveInspectionItem()">保存</button>
+    <button onclick="closeDialog()">閉じる</button>
+</div>
+
+<script src="../js/api.js"></script>
+<script src="../js/render_cards.js"></script>
+
+<script>
+// URL から equipment_id, date, process_id を取得
+const params = new URLSearchParams(window.location.search);
+const equipmentId = params.get("equipment_id");
+const departmentId = params.get("department_id");
+const date = params.get("date");
+const processId = params.get("process_id");
+
+// 有効な URL の date、またはローカルの今日（UTC の toISOString は使わない）
+const targetDate = resolveInspectionTargetDate(date);
+
+applySelectedDateBanner("selected-date-banner", date);
+
+let isSkippedToday = false;
+let equipmentDefaultSkip = false;
+
+function updateInspectButtonState() {
+    const btn = document.getElementById("useTodayBtn");
+    if (!btn) return;
+    btn.disabled = isSkippedToday;
+    if (isSkippedToday) {
+        btn.style.opacity = "0.55";
+        btn.style.cursor = "not-allowed";
+    } else {
+        btn.style.opacity = "";
+        btn.style.cursor = "";
+    }
+}
+
+async function loadSkipState() {
+    const row = document.getElementById("skipTodayRow");
+    const input = document.getElementById("skipToday");
+    const note = document.getElementById("skipTodayNote");
+    if (!row || !input || !isValidCalendarDateParam(date) || !processId) {
+        if (row) row.classList.add("hidden");
+        return;
+    }
+    row.classList.remove("hidden");
+    try {
+        if (targetDate === formatLocalDate(new Date())) {
+            await applyAutoSkipFromPreviousDay(processId, targetDate);
+        }
+        const [skips, uses, results] = await Promise.all([
+            fetchEquipmentSkips(processId, targetDate),
+            fetchEquipmentUses(processId, targetDate),
+            fetch(`${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(equipmentId)}&date=${encodeURIComponent(targetDate)}`).then(r => r.json()),
+        ]);
+        const skipIds = new Set(skips.map(s => String(s.equipment_id)));
+        const useIds = new Set(uses.map(u => String(u.equipment_id)));
+        const hasResults = hasInspectionResultsForDay(results);
+        isSkippedToday = !hasResults && isEquipmentSkippedToday(
+            { id: equipmentId, default_skip: equipmentDefaultSkip },
+            skipIds,
+            useIds
+        );
+        input.checked = isSkippedToday;
+        input.disabled = hasResults;
+        row.classList.toggle("equip-skip-row--locked", hasResults);
+        if (note) {
+            note.textContent = hasResults ? "点検済みのため「使用しない」は選べません" : "";
+            note.classList.toggle("hidden", !hasResults);
+        }
+    } catch (e) {
+        console.warn("スキップ状態の取得に失敗", e);
+    }
+    updateInspectButtonState();
+}
+
+document.getElementById("skipToday")?.addEventListener("change", async (e) => {
+    const input = e.target;
+    const checked = input.checked;
+    if (!isValidCalendarDateParam(date)) return;
+    if (input.disabled) {
+        input.checked = false;
+        return;
+    }
+    if (checked) {
+        const resultRes = await fetch(
+            `${API_BASE}/inspection_results/?equipment_id=${equipmentId}&date=${encodeURIComponent(targetDate)}`
+        );
+        const results = await resultRes.json();
+        if (hasInspectionResultsForDay(results)) {
+            input.checked = false;
+            alert("点検結果が登録されているため「本日は使用しない」にできません。");
+            return;
+        }
+    }
+    try {
+        await setEquipmentDayState(equipmentId, targetDate, checked, equipmentDefaultSkip);
+        isSkippedToday = checked;
+        updateInspectButtonState();
+    } catch (err) {
+        console.error(err);
+        alert("保存に失敗しました。\n" + (err.message || err));
+        input.checked = !checked;
+    }
+});
+
+// 使用した日を登録
+async function registerUsage() {
+    await fetch(`${API_BASE}/equipments/equipment_usage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            equipment_id: equipmentId,
+            date: targetDate
+        })
+    });
+}
+
+// 戻る
+document.getElementById("backBtn").onclick = () => {
+    let url = "./equipments.html?";
+    const q = [];
+    if (processId) q.push(`process_id=${encodeURIComponent(processId)}`);
+    if (departmentId) q.push(`department_id=${encodeURIComponent(departmentId)}`);
+    if (date) q.push(`date=${encodeURIComponent(date)}`);
+    window.location.href = url + q.join("&");
+};
+
+// 点検開始
+document.getElementById("useTodayBtn").onclick = async () => {
+    if (isSkippedToday) {
+        alert("「本日は使用しない」のチェックを外してから点検を開始してください。");
+        return;
+    }
+    await registerUsage();
+    location.replace(
+        `inspection_execute.html?equipment_id=${encodeURIComponent(equipmentId || "")}&process_id=${encodeURIComponent(processId || "")}&date=${encodeURIComponent(targetDate)}`
+    );
+};
+
+// 設備情報
+async function loadEquipment() {
+    const res = await fetch(`${API_BASE}/equipments/${equipmentId}`);
+    const eq = await res.json();
+
+    document.getElementById("eq-name").textContent = eq.name;
+    document.getElementById("eq-unit").textContent = eq.unit_no ?? "-";
+    document.getElementById("eq-management").textContent = eq.management_no ?? "-";
+    equipmentDefaultSkip = !!eq.default_skip;
+    loadSkipState();
+}
+loadEquipment();
+
+// 点検項目 + 結果
+async function loadInspectionItemsWithStatus() {
+    const itemRes = await fetch(`${API_BASE}/inspection_items/?equipment_id=${equipmentId}`);
+    const items = await itemRes.json();
+
+    const resultRes = await fetch(`${API_BASE}/inspection_results/?equipment_id=${equipmentId}&date=${targetDate}`);
+    const results = await resultRes.json();
+
+    const container = document.getElementById("item-container");
+    container.innerHTML = "";
+
+    items.forEach(item => {
+        const card = renderInspectionItemCard(item);
+
+        const savedItem = results.find(r => Number(r.item_id) === Number(item.id));
+        const displayValue = savedItem ? savedItem.value : "未点検";
+
+        card.querySelector(".item-sub").textContent = `結果: ${displayValue}`;
+
+        if (savedItem) {
+            card.classList.add("completed");
+        }
+
+        container.appendChild(card);
+    });
+}
+
+// 編集ダイアログを開く
+async function openEditInspectionItemDialog(itemId) {
+    const res = await fetch(`${API_BASE}/inspection_items/${itemId}`);
+    const item = await res.json();
+
+    document.getElementById("edit-item-id").value = item.id;
+    document.getElementById("edit-item-name").value = item.name;
+    document.getElementById("edit-item-type").value = item.type;
+
+    if (item.type === "numeric") {
+        document.getElementById("edit-numeric-fields").classList.remove("hidden");
+        document.getElementById("edit-item-min").value = item.min_value;
+        document.getElementById("edit-item-max").value = item.max_value;
+    } else {
+        document.getElementById("edit-numeric-fields").classList.add("hidden");
+    }
+
+    document.getElementById("edit-item-dialog").classList.remove("hidden");
+}
+
+// 保存
+async function saveInspectionItem() {
+    const id = document.getElementById("edit-item-id").value;
+    const name = document.getElementById("edit-item-name").value;
+    const type = document.getElementById("edit-item-type").value;
+
+    let min = null;
+    let max = null;
+
+    if (type === "numeric") {
+        min = document.getElementById("edit-item-min").value;
+        max = document.getElementById("edit-item-max").value;
+    }
+
+    await fetch(`${API_BASE}/inspection_items/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            name,
+            type,
+            min_value: min,
+            max_value: max
+        })
+    });
+
+    closeDialog();
+    loadInspectionItemsWithStatus();
+}
+async function registerInspectionItem() {
+    const name = document.getElementById("item-name").value;
+    const type = document.getElementById("item-type").value;
+
+    let min = null;
+    let max = null;
+
+    if (type === "numeric") {
+        min = document.getElementById("item-min").value;
+        max = document.getElementById("item-max").value;
+    }
+
+    await fetch(`${API_BASE}/inspection_items/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            equipment_id: equipmentId,
+            name,
+            type,
+            min_value: min,
+            max_value: max
+        })
+    });
+
+    closeDialog();
+    loadInspectionItemsWithStatus();
+}
+document.addEventListener("click", (e) => {
+    if (e.target.classList.contains("edit-btn")) {
+        const itemId = e.target.dataset.id;
+        openEditInspectionItemDialog(itemId);
+    }
+});
+// ダイアログを閉じる（追加・編集どちらも閉じる）
+function closeDialog() {
+    document.getElementById("add-item-dialog").classList.add("hidden");
+    document.getElementById("edit-item-dialog").classList.add("hidden");
+}
+function toggleNumericFields() {
+    const type = document.getElementById("item-type").value;
+    const numericFields = document.getElementById("numeric-fields");
+
+    if (type === "numeric") {
+        numericFields.classList.remove("hidden");
+    } else {
+        numericFields.classList.add("hidden");
+    }
+}
+
+function toggleEditNumericFields() {
+    const type = document.getElementById("edit-item-type").value;
+    const numericFields = document.getElementById("edit-numeric-fields");
+
+    if (type === "numeric") {
+        numericFields.classList.remove("hidden");
+    } else {
+        numericFields.classList.add("hidden");
+    }
+}
+document.getElementById("add-item-btn").onclick = () => {
+    document.getElementById("add-item-dialog").classList.remove("hidden");
+};
+
+// 点検項目を管理ボタン
+document.getElementById("manage-items-btn").onclick = () => {
+    const dateParam = date ? `&date=${encodeURIComponent(date)}` : "";
+    window.location.href = `inspection_items.html?equipment_id=${encodeURIComponent(equipmentId || "")}&process_id=${encodeURIComponent(processId || "")}&department_id=${encodeURIComponent(departmentId || "")}${dateParam}`;
+};
+
+loadInspectionItemsWithStatus();
+</script>
+
+</body>
+</html>

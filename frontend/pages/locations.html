@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>拠点選択</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+</head>
+<body>
+
+<h1>拠点を選択</h1>
+
+<div id="location-container" class="card-grid"></div>
+<p id="load-status" class="load-status" aria-live="polite">読み込み中…</p>
+
+<script src="../js/api.js?v=2"></script>
+<script src="../js/render_cards.js?v=2"></script>
+<script>
+    // ページ読み込み時に拠点一覧を取得
+    loadLocations();
+</script>
+
+</body>
+</html>

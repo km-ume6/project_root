@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>点検実行</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+</head>
+<body class="inspection-execute">
+
+
+<button id="backBtn" class="back-btn">← 戻る</button>
+<h1>点検実施</h1>
+
+<div id="item-container" class="item-list"></div>
+
+<!-- 保存ボタン（画面下固定） -->
+<div class="footer-save">
+    <button id="saveBtn" class="save-btn">保存する</button>
+</div>
+
+<script src="../js/api.js"></script>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const equipmentId = params.get("equipment_id");
+const dateFromUrl = params.get("date");
+const targetDate = resolveInspectionTargetDate(dateFromUrl);
+const processId = params.get("process_id");
+console.log("inspection_execute URL:", window.location.href);
+console.log("inspection_execute targetDate:", targetDate);
+console.log("inspection_execute process_id:", processId);
+const departmentId = params.get("department_id");
+
+document.getElementById("backBtn").onclick = () => {
+    history.back();
+};
+// ===============================
+// 保存済みの点検結果を取得
+// ===============================
+async function loadSavedResults() {
+    const res = await fetch(`${API_BASE}/inspection_results/?equipment_id=${equipmentId}&date=${encodeURIComponent(targetDate)}`);
+    const data = await res.json();
+    console.log("saved results:", data);  // ← 追加
+    return data;
+}
+
+// ===============================
+// 点検項目を読み込む
+// ===============================
+async function loadInspectionItems() {
+    const res = await fetch(`${API_BASE}/inspection_items/?equipment_id=${equipmentId}`);
+    const items = await res.json();
+
+    const saved = await loadSavedResults();   // 保存済みデータ
+    console.log("saved results:", saved);
+
+    const container = document.getElementById("item-container");
+    container.innerHTML = "";
+
+    items.forEach(item => {
+        console.log("item.id:", item.id, typeof item.id);  // ← 正しい位置
+
+        const card = document.createElement("div");
+        card.className = "item-card";
+        card.dataset.id = item.id;
+        card.dataset.type = item.type;
+
+        let inputHtml = "";
+
+        if (item.type === "okng") {
+            inputHtml = `
+                <div class="okng-group">
+                    <button class="ok-btn" data-id="${item.id}" data-value="OK">OK</button>
+                    <button class="ng-btn" data-id="${item.id}" data-value="NG">NG</button>
+                </div>
+            `;
+        }
+
+        if (item.type === "numeric") {
+            inputHtml = `
+                <input 
+                    type="number"
+                    class="numeric-input"
+                    id="input-${item.id}"
+                    step="any"
+                    placeholder="0"
+                    autocomplete="off"
+                    data-min="${item.min_value}"
+                    data-max="${item.max_value}">
+            `;
+        }
+
+
+
+        if (item.type === "text") {
+            inputHtml = `
+                <input type="text" id="input-${item.id}">
+            `;
+        }
+
+        let bandClass = "";
+        if (item.type === "okng") bandClass = "band-okng";
+        if (item.type === "numeric") bandClass = "band-numeric";
+        if (item.type === "text") bandClass = "band-text";
+
+        card.innerHTML = `
+            <div class="item-band ${bandClass}"></div>
+            <div class="item-content">
+                <div class="item-title">${item.name}</div>
+                <div class="item-input">${inputHtml}</div>
+            </div>
+        `;
+
+
+        container.appendChild(card);
+
+        // ★ 保存済みデータの反映（ここが本体）
+        const savedItem = saved.find(s => Number(s.item_id) === Number(item.id));
+
+        if (savedItem) {
+            applySavedValue(card, item.type, savedItem.value);
+        }
+    });
+}
+// ===============================
+// 保存済みの値を UI に反映
+// ===============================
+function applySavedValue(card, type, value) {
+    if (type === "okng") {
+        const btn = card.querySelector(`button[data-value="${value}"]`);
+        if (btn) btn.classList.add("selected");
+        card.classList.add("completed");
+    }
+
+    if (type === "numeric") {
+        const input = card.querySelector("input");
+        input.value = value;
+        card.classList.add("completed");
+    }
+
+    if (type === "text") {
+        const input = card.querySelector("input");
+        input.value = value;
+        card.classList.add("completed");
+    }
+}
+
+// ===============================
+// 保存処理
+// ===============================
+document.getElementById("saveBtn").onclick = async () => {
+
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "保存中…";
+
+    // ★ 既存データを取得
+    const existingRes = await fetch(`${API_BASE}/inspection_results/?equipment_id=${equipmentId}&date=${encodeURIComponent(targetDate)}`);
+    const existing = await existingRes.json();
+
+    // ★ 既にデータがある場合は確認
+    if (existing.length > 0) {
+        const ok = confirm("この日の点検結果は既に保存されています。\n上書きしますか？");
+        if (!ok) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = "保存する";
+            return;
+        }
+
+        // ★ 上書きするので既存データを全削除
+        for (const row of existing) {
+            await fetch(`${API_BASE}/inspection_results/${row.id}`, {
+                method: "DELETE"
+            });
+        }
+    }
+
+    // ★ ここから新規保存（POST）
+    const cards = document.querySelectorAll(".item-card");
+
+    for (const card of cards) {
+        const itemId = card.dataset.id;
+        const type = card.dataset.type;
+
+        let value = "";
+
+        if (type === "okng") {
+            const selected = card.querySelector(".selected");
+            if (!selected) continue;
+            value = selected.dataset.value;
+        }
+
+        if (type === "numeric") {
+            value = card.querySelector("input").value;
+        }
+
+        if (type === "text") {
+            value = card.querySelector("input").value;
+        }
+
+        await fetch(`${API_BASE}/inspection_results/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                equipment_id: equipmentId,
+                item_id: itemId,
+                date: targetDate,
+                value: value
+            })
+        });
+    }
+
+    alert("点検結果を保存しました");
+
+    window.location.replace(
+        `equipments.html?process_id=${encodeURIComponent(processId || "")}&department_id=${encodeURIComponent(departmentId || "")}&date=${encodeURIComponent(targetDate)}`
+    );
+};
+
+
+
+// ===============================
+// OK/NG ボタンの選択処理
+// ===============================
+document.addEventListener("click", (e) => {
+    if (e.target.classList.contains("ok-btn") || e.target.classList.contains("ng-btn")) {
+        const itemId = e.target.dataset.id;
+
+        // OK/NG ボタンの選択状態をリセット
+        document.querySelectorAll(`button[data-id="${itemId}"]`).forEach(btn => {
+            btn.classList.remove("selected");
+        });
+
+        // 押したボタンを選択状態に
+        e.target.classList.add("selected");
+
+        const card = e.target.closest(".item-card");
+        const band = card.querySelector(".item-band");
+
+        // まず色を全部リセット
+        card.classList.remove("completed", "ng-selected", "numeric-ok", "numeric-ng");
+        band.classList.remove("numeric-ok", "numeric-ng");
+
+        // OK → 緑
+        if (e.target.classList.contains("ok-btn")) {
+            card.classList.add("completed");
+            band.classList.add("numeric-ok");   // ← バンドも緑
+        }
+
+        // NG → 赤
+        if (e.target.classList.contains("ng-btn")) {
+            card.classList.add("ng-selected");
+            band.classList.add("numeric-ng");   // ← バンドも赤
+        }
+    }
+});
+document.addEventListener("input", (e) => {
+    if (!e.target.closest(".item-input")) return;
+
+    // テキスト入力だけ処理
+    if (e.target.type !== "text" || e.target.classList.contains("numeric-input")) return;
+
+    const input = e.target;
+    const card = input.closest(".item-card");
+    const band = card.querySelector(".item-band");
+
+    // リセット
+    card.classList.remove("numeric-ok", "numeric-ng");
+    band.classList.remove("numeric-ok", "numeric-ng");
+
+    // 空欄 → 色なし
+    if (input.value.trim() === "") return;
+
+    // 入力あり → 緑
+    card.classList.add("numeric-ok");
+    band.classList.add("numeric-ok");
+});
+
+document.addEventListener("input", (e) => {
+    if (!e.target.classList.contains("numeric-input")) return;
+
+    const input = e.target;
+    const card = input.closest(".item-card");
+    const band = card.querySelector(".item-band");
+
+    const min = input.dataset.min ? Number(input.dataset.min) : null;
+    const max = input.dataset.max ? Number(input.dataset.max) : null;
+    
+    // 入力値を数値に変換（空欄や無効な値に対応）
+    const value = input.value.trim();
+    
+    // カード色リセット
+    card.classList.remove("numeric-ok", "numeric-ng");
+    band.classList.remove("numeric-ok", "numeric-ng");
+
+    // 空欄なら判定しない
+    if (value === "") return;
+    
+    // 数値として解析可能か確認
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+        // 無効な数値なら何もしない
+        return;
+    }
+
+    // 規格値がある場合は範囲チェック
+    if (min !== null && max !== null) {
+        if (numValue >= min && numValue <= max) {
+            card.classList.add("numeric-ok");
+            band.classList.add("numeric-ok");
+        } else {
+            card.classList.add("numeric-ng");
+            band.classList.add("numeric-ng");
+        }
+    } else {
+        // 規格値がない場合は、入力があれば緑
+        card.classList.add("numeric-ok");
+        band.classList.add("numeric-ok");
+    }
+});
+
+
+
+loadInspectionItems();
+document.addEventListener("focusin", (e) => {
+    const card = e.target.closest(".item-card");
+    if (!card) return;
+
+    setTimeout(() => {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 300); // キーボードが出る時間を待つ
+});
+</script>
+<div id="keypad" class="keypad hidden">
+    <div class="keypad-display" id="keypad-display"></div>
+
+    <div class="keypad-grid">
+        <button data-key="1">1</button>
+        <button data-key="2">2</button>
+        <button data-key="3">3</button>
+        <button data-key="4">4</button>
+        <button data-key="5">5</button>
+        <button data-key="6">6</button>
+        <button data-key="7">7</button>
+        <button data-key="8">8</button>
+        <button data-key="9">9</button>
+        <button data-key="0">0</button>
+        <button data-key="-">-</button>
+        <button data-key=".">.</button>
+        <button data-key="del">⌫</button>
+    </div>
+
+    <button id="keypad-ok" class="keypad-ok">OK</button>
+</div>
+<script src="../js/keypad.js"></script>
+
+</body>
+</html>

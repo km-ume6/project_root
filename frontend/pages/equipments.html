@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>設備一覧</title>
+    <link rel="stylesheet" href="../css/base.css">
+    <link rel="stylesheet" href="../css/cards.css">
+
+
+
+</head>
+
+<body class="equipments-page">
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
+<button id="backBtn" class="back-btn">← 戻る</button>
+
+<label class="sort-toggle">
+    <input type="checkbox" id="sortToggle">
+    並べ替え
+</label>
+
+
+<h1>設備一覧</h1>
+
+<p id="selected-date-banner" class="context-date-banner hidden" aria-live="polite"></p>
+
+<div class="header-area">
+    <div id="add-equipment-btn" class="add-btn">＋ 設備を追加</div>
+</div>
+
+<div id="equipment-container" class="card-grid"></div>
+
+<!-- 設備追加/編集ダイアログ -->
+<div id="add-equipment-dialog" class="dialog hidden">
+    <h2 id="dialog-title">設備を追加</h2>
+
+    <label>設備名</label>
+    <input id="eq-name" type="text">
+
+    <label>号機</label>
+    <input id="eq-unit" type="text">
+
+    <label>管理番号</label>
+    <input id="eq-management" type="text">
+
+    <label class="dialog-check-row">
+        <input type="checkbox" id="eq-default-skip">
+        普段は使用しない（一覧で初期「本日は使用しない」）
+    </label>
+
+    <button id="dialog-save-btn">登録</button>
+    <button onclick="closeDialog()">閉じる</button>
+</div>
+
+<script src="../js/api.js"></script>
+
+<script>
+
+const params = new URLSearchParams(window.location.search);
+const processId = params.get("process_id");
+const date = params.get("date");
+
+console.log("equipments.html URL:", window.location.href);
+console.log("equipments.html raw date:", date);
+
+// safeDateForCall を作っておく（外側で一度だけ判定）
+const safeDateForCall = (date && date.trim() !== "" && date !== "undefined" && date !== "null")
+    ? date
+    : null;
+
+console.log("equipments will load with safeDate:", safeDateForCall);
+
+applySelectedDateBanner("selected-date-banner", safeDateForCall);
+
+let editTargetId = null; // 編集対象ID
+
+// 呼び出しは safeDateForCall を渡す
+loadEquipments(processId, safeDateForCall);
+
+// 戻るはカレンダーへ（process_id と date を付けて戻す）
+const departmentId = params.get("department_id"); // ← 追加
+
+document.getElementById("backBtn").onclick = () => {
+    const dateParam = safeDateForCall ? `&date=${encodeURIComponent(safeDateForCall)}` : "";
+    window.location.href =
+        `./calendar.html?process_id=${encodeURIComponent(processId || "")}&department_id=${encodeURIComponent(departmentId || "")}${dateParam}`;
+};
+
+const sortToggle = document.getElementById("sortToggle");
+const container = document.getElementById("equipment-container");
+let sortable = null;
+
+sortToggle.addEventListener("change", (e) => {
+    const isActive = e.target.checked;
+    console.log("並べ替えモード:", isActive);
+
+    if (isActive) {
+        document.body.classList.add("sort-mode");
+
+        sortable = new Sortable(container, {
+            animation: 150,
+            handle: ".drag-handle",
+            onEnd: async () => {
+                const ids = [...container.children].map(card =>
+                    Number(card.getAttribute("data-id"))
+                );
+
+                await fetch(`${API_BASE}/equipments/sort_order`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(ids)
+                });
+            }
+        });
+
+    } else {
+        document.body.classList.remove("sort-mode");
+
+        if (sortable) {
+            sortable.destroy();
+            sortable = null;
+        }
+    }
+});
+
+
+
+document.getElementById("add-equipment-btn").onclick = openAddDialog;
+
+function getEquipmentBandStyle(eq, isSkipped) {
+    if (isSkipped) return "";
+    const hasNG = eq.todaysResults && eq.todaysResults.some(r => String(r.value).toUpperCase() === "NG");
+    const bandColor = hasNG
+        ? "#e24a4a"
+        : (eq.todaysResults && eq.todaysResults.length > 0 ? "#28a745" : "#dc3545");
+    return `style="background:${bandColor};"`;
+}
+
+function getEquipmentStatus(eq, isSkipped) {
+    if (isSkipped) {
+        return { text: "本日は使用しません", color: "#92400e" };
+    }
+    if (eq.todaysResults && eq.todaysResults.length > 0) {
+        const hasNG = eq.todaysResults.some(r => String(r.value).toUpperCase() === "NG");
+        if (hasNG) return { text: "NG項目あり", color: "#e24a4a" };
+        return { text: "点検済み", color: "#28a745" };
+    }
+    return { text: "未点検", color: "#c00" };
+}
+
+function applyEquipmentCardSkipState(card, eq, isSkipped) {
+    card.classList.toggle("skipped-today", isSkipped);
+    const band = card.querySelector(".equip-band");
+    const bandAttr = getEquipmentBandStyle(eq, isSkipped);
+    if (bandAttr) {
+        const m = bandAttr.match(/style="([^"]+)"/);
+        band.setAttribute("style", m ? m[1] : bandAttr);
+    } else {
+        band.removeAttribute("style");
+    }
+    const status = getEquipmentStatus(eq, isSkipped);
+    const statusEl = card.querySelector(".equip-status-line");
+    if (statusEl) {
+        statusEl.textContent = status.text;
+        statusEl.style.color = status.color;
+    }
+    const skipInput = card.querySelector(".skip-checkbox");
+    if (skipInput) skipInput.checked = isSkipped;
+}
+
+// ===============================
+// 設備一覧（点検状況色分け）
+// ===============================
+async function loadEquipments(processId, selectedDate) {
+    console.log("loadEquipments 実行", processId, selectedDate);
+
+    // API: 設備一覧取得
+    const res = await fetch(`${API_BASE}/equipments/?process_id=${encodeURIComponent(processId || "")}`);
+    const equipments = await res.json();
+
+    const container = document.getElementById("equipment-container");
+    container.innerHTML = "";
+
+    // selectedDate を厳密に判定
+    const safeDate = (selectedDate && selectedDate.trim() !== "" && selectedDate !== "undefined" && selectedDate !== "null")
+        ? selectedDate
+        : null;
+
+    // inspection_results を並列取得
+    const resultsList = await Promise.all(
+        equipments.map(eq => {
+            if (!safeDate) return Promise.resolve([]);
+            const url = `${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(eq.id)}&date=${encodeURIComponent(safeDate)}`;
+            return fetch(url).then(r => r.json());
+        })
+    );
+
+    let skipIds = new Set();
+    let useIds = new Set();
+    if (safeDate && processId) {
+        try {
+            await applyAutoSkipFromPreviousDay(processId, safeDate);
+            const [skips, uses] = await Promise.all([
+                fetchEquipmentSkips(processId, safeDate),
+                fetchEquipmentUses(processId, safeDate),
+            ]);
+            skipIds = new Set(skips.map(s => String(s.equipment_id)));
+            useIds = new Set(uses.map(u => String(u.equipment_id)));
+        } catch (e) {
+            console.warn("使用／不使用の取得に失敗", e);
+        }
+    }
+
+    // 結果を設備に紐づける
+    const targetEquipments = equipments.map((eq, index) => {
+        const todays = resultsList[index] || [];
+        return { ...eq, todaysResults: todays };
+    });
+
+    // ===============================
+    // カード生成（ここが本体）
+    // ===============================
+    for (const eq of targetEquipments) {
+
+        const card = document.createElement("div");
+        card.className = "card equipment-card";
+        card.setAttribute("data-id", eq.id);
+
+        const hasResults = hasInspectionResultsForDay(eq.todaysResults);
+        const isSkipped = safeDate && !hasResults && isEquipmentSkippedToday(eq, skipIds, useIds);
+        card.dataset.defaultSkip = eq.default_skip ? "1" : "0";
+        card.dataset.hasResults = hasResults ? "1" : "0";
+        const bandStyle = getEquipmentBandStyle(eq, isSkipped);
+        const status = getEquipmentStatus(eq, isSkipped);
+        if (isSkipped) {
+            card.classList.add("skipped-today");
+        }
+
+        const skipDisabledAttr = hasResults ? "disabled" : "";
+        const skipNoteHtml = hasResults
+            ? `<div class="equip-skip-note">点検済みのため「使用しない」は選べません</div>`
+            : "";
+        const skipCheckboxHtml = safeDate
+            ? `<label class="equip-skip-row${hasResults ? " equip-skip-row--locked" : ""}">
+                <input type="checkbox" class="skip-checkbox" ${isSkipped ? "checked" : ""} ${skipDisabledAttr}>
+                本日は使用しない
+               </label>${skipNoteHtml}`
+            : "";
+
+        // カード HTML
+        card.innerHTML = `
+            <div class="equip-band" ${bandStyle}></div>
+
+            <span class="drag-handle">≡</span>
+
+            <div class="equip-content">
+                <div class="equip-title">${escapeHtml(eq.name)}</div>
+                <div class="equip-sub">号機: ${escapeHtml(eq.unit_no ?? "-")}</div>
+                <div class="equip-sub">管理番号: ${escapeHtml(eq.management_no ?? "-")}</div>
+                <div class="equip-sub equip-status-line" style="color:${status.color};">
+                    ${status.text}
+                </div>
+                ${skipCheckboxHtml}
+            </div>
+
+            <button class="edit-btn" data-id="${eq.id}">✎</button>
+            <button class="delete-btn" data-id="${eq.id}">🗑</button>
+        `;
+
+        const skipRow = card.querySelector(".equip-skip-row");
+        if (skipRow) {
+            const stopNav = (e) => e.stopPropagation();
+            skipRow.addEventListener("mousedown", stopNav);
+            skipRow.addEventListener("click", stopNav);
+            const skipInput = card.querySelector(".skip-checkbox");
+            skipInput.addEventListener("mousedown", stopNav);
+            skipInput.addEventListener("click", stopNav);
+            skipInput.addEventListener("change", async (e) => {
+                e.stopPropagation();
+                if (!safeDate) return;
+                if (skipInput.disabled || card.dataset.hasResults === "1") {
+                    skipInput.checked = false;
+                    return;
+                }
+                const checked = skipInput.checked;
+                if (checked && hasInspectionResultsForDay(eq.todaysResults)) {
+                    skipInput.checked = false;
+                    return;
+                }
+                skipInput.disabled = true;
+                try {
+                    const defaultSkip = card.dataset.defaultSkip === "1";
+                    await setEquipmentDayState(eq.id, safeDate, checked, defaultSkip);
+                    applyEquipmentCardSkipState(card, eq, checked);
+                } catch (err) {
+                    console.error(err);
+                    alert("保存に失敗しました。\n" + (err.message || err) + "\n\nFastAPI を再起動したか確認してください。");
+                    skipInput.checked = !checked;
+                } finally {
+                    skipInput.disabled = false;
+                }
+            });
+        }
+
+        // ▼ カードクリック
+        card.onclick = (e) => {
+            if (e.target.closest(".equip-skip-row")) return;
+            const dateParam = safeDate ? `&date=${encodeURIComponent(safeDate)}` : "";
+            location.href =
+                `./equipment_detail.html?equipment_id=${encodeURIComponent(eq.id)}&process_id=${encodeURIComponent(processId || "")}&department_id=${encodeURIComponent(departmentId || "")}${dateParam}`;
+        };
+
+        // ▼ 削除
+        const deleteBtn = card.querySelector(".delete-btn");
+        deleteBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+        deleteBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (!confirm("この設備を削除しますか？\n点検項目・点検結果もまとめて削除されます。")) return;
+
+            const ok = await deleteEquipment(eq.id);
+            if (ok) loadEquipments(processId, safeDateForCall);
+        });
+
+        // ▼ 編集
+        const editBtn = card.querySelector(".edit-btn");
+        editBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+        editBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            openEditDialog(eq);
+        });
+
+        // ▼ drag-handle のクリックをカード遷移から守る
+        const handle = card.querySelector(".drag-handle");
+
+        handle.addEventListener("click", (e) => {
+            e.stopPropagation();
+
+        });
+
+        container.appendChild(card);
+    }
+}
+
+// ===============================
+// 追加ダイアログ
+// ===============================
+function openAddDialog() {
+    editTargetId = null;
+    document.getElementById("dialog-title").textContent = "設備を追加";
+    document.getElementById("dialog-save-btn").textContent = "登録";
+
+    document.getElementById("eq-name").value = "";
+    document.getElementById("eq-unit").value = "";
+    document.getElementById("eq-management").value = "";
+    document.getElementById("eq-default-skip").checked = false;
+
+    document.getElementById("dialog-save-btn").onclick = registerEquipment;
+
+    document.getElementById("add-equipment-dialog").classList.remove("hidden");
+}
+
+// ===============================
+// 編集ダイアログ
+// ===============================
+function openEditDialog(eq) {
+    editTargetId = eq.id;
+
+    document.getElementById("dialog-title").textContent = "設備を編集";
+    document.getElementById("dialog-save-btn").textContent = "更新";
+
+    document.getElementById("eq-name").value = eq.name;
+    document.getElementById("eq-unit").value = eq.unit_no ?? "";
+    document.getElementById("eq-management").value = eq.management_no ?? "";
+    document.getElementById("eq-default-skip").checked = !!eq.default_skip;
+
+    document.getElementById("dialog-save-btn").onclick = updateEquipment;
+
+    document.getElementById("add-equipment-dialog").classList.remove("hidden");
+}
+
+// ===============================
+// 設備追加
+// ===============================
+async function registerEquipment() {
+    const name = document.getElementById("eq-name").value;
+    const unit = document.getElementById("eq-unit").value;
+    const management = document.getElementById("eq-management").value;
+    const defaultSkip = document.getElementById("eq-default-skip").checked;
+
+    await fetch(`${API_BASE}/equipments/?process_id=${encodeURIComponent(processId || "")}&name=${encodeURIComponent(name)}&unit_no=${encodeURIComponent(unit)}&management_no=${encodeURIComponent(management)}&default_skip=${defaultSkip}`, {
+        method: "POST"
+    });
+
+    closeDialog();
+    // 再読み込みは safeDateForCall を使う
+    loadEquipments(processId, safeDateForCall);
+}
+
+// ===============================
+// 設備更新
+// ===============================
+async function updateEquipment() {
+    const name = document.getElementById("eq-name").value;
+    const unit = document.getElementById("eq-unit").value;
+    const management = document.getElementById("eq-management").value;
+    const defaultSkip = document.getElementById("eq-default-skip").checked;
+
+    await fetch(`${API_BASE}/equipments/${encodeURIComponent(editTargetId)}?name=${encodeURIComponent(name)}&unit_no=${encodeURIComponent(unit)}&management_no=${encodeURIComponent(management)}&default_skip=${defaultSkip}`, {
+        method: "PUT"
+    });
+
+    closeDialog();
+    loadEquipments(processId, safeDateForCall);
+}
+
+function closeDialog() {
+    document.getElementById("add-equipment-dialog").classList.add("hidden");
+}
+
+/* -------------------------
+   ユーティリティ
+   ------------------------- */
+// 簡易エスケープ（表示用）
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+</script>
+
+</body>
+</html>
