@@ -1,8 +1,19 @@
-// 8000番で画面+APIを同じオリジン配信。5500番のときだけ :8000 を使う
-const API_BASE =
-    window.location.port === "8000" || window.location.port === "80" || window.location.port === "443" || window.location.port === ""
-        ? ""
-        : `${window.location.protocol}//${window.location.hostname}:8000`;
+// Coolify 向けの安全な方針:
+// 1. まず /api を same-origin で使う（reverse proxy / same-host 配信を前提）
+// 2. 旧ローカル構成（画面:5500 / API:8000）だけ 8000 へフォールバック
+// 3. どちらでも上書き可能にする
+const API_BASE = (() => {
+    const override = window.__API_BASE__;
+    if (override && String(override).trim()) {
+        return String(override).replace(/\/+$/, "");
+    }
+
+    if (window.location.port === "5500") {
+        return `${window.location.protocol}//${window.location.hostname}:8000/api`;
+    }
+
+    return "/api";
+})();
 
 
 async function getLocations() {
@@ -83,6 +94,31 @@ function formatInspectionDateLabel(ymd) {
     const dt = new Date(y, m - 1, d);
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
     return `${y}年${m}月${d}日（${weekdays[dt.getDay()]}）`;
+}
+
+/** 工程の点検項目を一括取得 */
+async function fetchInspectionItemsByProcess(processId) {
+    const res = await fetch(
+        `${API_BASE}/inspection_items/by_process?process_id=${encodeURIComponent(processId)}`
+    );
+    if (!res.ok) throw new Error("点検項目の一括取得に失敗しました");
+    return await res.json();
+}
+
+/**
+ * 工程×期間の点検結果を一括取得
+ * @param {string|number} processId
+ * @param {string} fromYmd YYYY-MM-DD
+ * @param {string} [toYmd] 省略時は from と同日
+ */
+async function fetchInspectionResultsByProcess(processId, fromYmd, toYmd) {
+    const to = toYmd || fromYmd;
+    const res = await fetch(
+        `${API_BASE}/inspection_results/by_process?process_id=${encodeURIComponent(processId)}` +
+        `&from=${encodeURIComponent(fromYmd)}&to=${encodeURIComponent(to)}`
+    );
+    if (!res.ok) throw new Error("点検結果の一括取得に失敗しました");
+    return await res.json();
 }
 
 /** 工程×日付の「本日使用しない」一覧を取得 */

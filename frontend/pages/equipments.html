@@ -178,10 +178,6 @@ function applyEquipmentCardSkipState(card, eq, isSkipped) {
 async function loadEquipments(processId, selectedDate) {
     console.log("loadEquipments 実行", processId, selectedDate);
 
-    // API: 設備一覧取得
-    const res = await fetch(`${API_BASE}/equipments/?process_id=${encodeURIComponent(processId || "")}`);
-    const equipments = await res.json();
-
     const container = document.getElementById("equipment-container");
     container.innerHTML = "";
 
@@ -190,14 +186,20 @@ async function loadEquipments(processId, selectedDate) {
         ? selectedDate
         : null;
 
-    // inspection_results を並列取得
-    const resultsList = await Promise.all(
-        equipments.map(eq => {
-            if (!safeDate) return Promise.resolve([]);
-            const url = `${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(eq.id)}&date=${encodeURIComponent(safeDate)}`;
-            return fetch(url).then(r => r.json());
-        })
-    );
+    // 設備一覧と、その日の点検結果を一括で並列取得（N+1 回避）
+    const [equipments, resultsFlat] = await Promise.all([
+        fetch(`${API_BASE}/equipments/?process_id=${encodeURIComponent(processId || "")}`).then(r => r.json()),
+        (safeDate && processId)
+            ? fetchInspectionResultsByProcess(processId, safeDate, safeDate)
+            : Promise.resolve([]),
+    ]);
+
+    const resultsByEquipment = {};
+    for (const r of resultsFlat) {
+        const key = String(r.equipment_id);
+        if (!resultsByEquipment[key]) resultsByEquipment[key] = [];
+        resultsByEquipment[key].push(r);
+    }
 
     let skipIds = new Set();
     let useIds = new Set();
@@ -216,8 +218,8 @@ async function loadEquipments(processId, selectedDate) {
     }
 
     // 結果を設備に紐づける
-    const targetEquipments = equipments.map((eq, index) => {
-        const todays = resultsList[index] || [];
+    const targetEquipments = equipments.map((eq) => {
+        const todays = resultsByEquipment[String(eq.id)] || [];
         return { ...eq, todaysResults: todays };
     });
 

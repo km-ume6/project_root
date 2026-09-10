@@ -33,8 +33,9 @@ async function loadLocations() {
     } catch (err) {
         console.error("拠点一覧の取得エラー:", err);
         if (status) status.textContent = "";
-        const entry = `${window.location.protocol}//${window.location.hostname}:8000/pages/locations.html`;
-        container.innerHTML = `<p style="color:#c00;">拠点一覧を読み込めませんでした。<br>次のURLで開いてください：<br><a href="${entry}">${entry}</a><br>（古いQRやブックマークのIPが合っていない可能性があります）</p>`;
+        const entry = `${window.location.origin}/pages/locations.html`;
+        const detail = err?.message ? `<br>原因: ${err.message}` : "";
+        container.innerHTML = `<p style="color:#c00;">拠点一覧を読み込めませんでした。${detail}<br>次のURLで開いてください：<br><a href="${entry}">${entry}</a><br>（古いQRやブックマークのIPが合っていない可能性があります）</p>`;
     }
 }
 
