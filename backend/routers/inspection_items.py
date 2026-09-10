@@ -36,6 +36,38 @@ def get_inspection_items(equipment_id: int):
     conn.close()
 
     return result
+
+
+@router.get("/by_process")
+def get_inspection_items_by_process(process_id: int):
+    """工程に属する全設備の点検項目を一括取得"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT i.id, i.equipment_id, i.name, i.type, i.min_value, i.max_value
+        FROM inspection_items i
+        INNER JOIN equipments e ON e.id = i.equipment_id
+        WHERE e.process_id = ?
+        ORDER BY i.equipment_id, i.id
+    """, (process_id,))
+
+    result = []
+    for row in cursor.fetchall():
+        result.append({
+            "id": row[0],
+            "equipment_id": row[1],
+            "name": row[2],
+            "type": row[3],
+            "min_value": row[4],
+            "max_value": row[5],
+        })
+
+    cursor.close()
+    conn.close()
+    return result
+
+
 @router.post("/")
 def add_inspection_item(item: InspectionItemCreate):
     conn = get_connection()

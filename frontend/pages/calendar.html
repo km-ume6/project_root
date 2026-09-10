@@ -253,52 +253,36 @@ async function loadCalendarEventsForRange(rangeStart, rangeEnd) {
     const last = new Date(endExclusive);
     last.setDate(last.getDate() - 1);
 
-    const equipments = await fetch(
-        `${API_BASE}/equipments/?process_id=${processId}`
-    ).then(r => r.json());
-
-    // 点検項目一覧
-    const itemsList = await Promise.all(
-        equipments.map(eq =>
-            fetch(`${API_BASE}/inspection_items/?equipment_id=${encodeURIComponent(eq.id)}`)
-                .then(r => r.json())
-        )
-    );
-
-    const itemsMap = {};
-    for (let i = 0; i < equipments.length; i++) {
-        const eq = equipments[i];
-        const items = itemsList[i];
-        itemsMap[eq.id] = {};
-        items.forEach(item => {
-            itemsMap[eq.id][item.id] = {
-                type: item.type,
-                min_value: item.min_value,
-                max_value: item.max_value
-            };
-        });
-    }
-
-    // 点検結果（全件）
-    const resultsList = await Promise.all(
-        equipments.map(eq =>
-            fetch(`${API_BASE}/inspection_results/?equipment_id=${encodeURIComponent(eq.id)}`)
-                .then(r => r.json())
-        )
-    );
-
-    const allResults = {};
-    resultsList.forEach(results => {
-        results.forEach(r => {
-            const dayKey = String(r.date || "").split("T")[0];
-            if (!dayKey) return;
-            if (!allResults[dayKey]) allResults[dayKey] = [];
-            allResults[dayKey].push(r);
-        });
-    });
-
     const rangeFrom = formatLocalDate(first);
     const rangeTo = formatLocalDate(last);
+
+    // 設備・点検項目・表示期間の結果を一括で並列取得（N+1 回避）
+    const [equipments, itemsFlat, resultsFlat] = await Promise.all([
+        fetch(`${API_BASE}/equipments/?process_id=${processId}`).then(r => r.json()),
+        fetchInspectionItemsByProcess(processId),
+        fetchInspectionResultsByProcess(processId, rangeFrom, rangeTo),
+    ]);
+
+    const itemsMap = {};
+    for (const eq of equipments) {
+        itemsMap[eq.id] = {};
+    }
+    for (const item of itemsFlat) {
+        if (!itemsMap[item.equipment_id]) itemsMap[item.equipment_id] = {};
+        itemsMap[item.equipment_id][item.id] = {
+            type: item.type,
+            min_value: item.min_value,
+            max_value: item.max_value
+        };
+    }
+
+    const allResults = {};
+    for (const r of resultsFlat) {
+        const dayKey = String(r.date || "").split("T")[0];
+        if (!dayKey) continue;
+        if (!allResults[dayKey]) allResults[dayKey] = [];
+        allResults[dayKey].push(r);
+    }
 
     const skipByDate = {};
     const useByDate = {};

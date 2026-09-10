@@ -1,20 +1,13 @@
-// 同じオリジンで配信している前提で、相対パスで API を呼ぶ
-const API_BASE = "";
+// 5500番（静的配信）のときだけ API を :8000 へ。それ以外（8000/8010 等で画面+API同居）は同一オリジン
+const API_BASE =
+    window.location.port === "5500"
+        ? `${window.location.protocol}//${window.location.hostname}:8000`
+        : "";
 
 
 async function getLocations() {
     const res = await fetch(`${API_BASE}/locations/`);
-    if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let detail = "拠点一覧の取得に失敗しました";
-        try {
-            const payload = JSON.parse(text);
-            if (payload?.detail) detail = payload.detail;
-        } catch (_) {
-            if (text) detail = text;
-        }
-        throw new Error(detail);
-    }
+    if (!res.ok) throw new Error("拠点一覧の取得に失敗しました");
     return await res.json();
 }
 
@@ -90,6 +83,31 @@ function formatInspectionDateLabel(ymd) {
     const dt = new Date(y, m - 1, d);
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
     return `${y}年${m}月${d}日（${weekdays[dt.getDay()]}）`;
+}
+
+/** 工程の点検項目を一括取得 */
+async function fetchInspectionItemsByProcess(processId) {
+    const res = await fetch(
+        `${API_BASE}/inspection_items/by_process?process_id=${encodeURIComponent(processId)}`
+    );
+    if (!res.ok) throw new Error("点検項目の一括取得に失敗しました");
+    return await res.json();
+}
+
+/**
+ * 工程×期間の点検結果を一括取得
+ * @param {string|number} processId
+ * @param {string} fromYmd YYYY-MM-DD
+ * @param {string} [toYmd] 省略時は from と同日
+ */
+async function fetchInspectionResultsByProcess(processId, fromYmd, toYmd) {
+    const to = toYmd || fromYmd;
+    const res = await fetch(
+        `${API_BASE}/inspection_results/by_process?process_id=${encodeURIComponent(processId)}` +
+        `&from=${encodeURIComponent(fromYmd)}&to=${encodeURIComponent(to)}`
+    );
+    if (!res.ok) throw new Error("点検結果の一括取得に失敗しました");
+    return await res.json();
 }
 
 /** 工程×日付の「本日使用しない」一覧を取得 */

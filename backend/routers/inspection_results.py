@@ -101,6 +101,58 @@ def get_results(equipment_id: int, date: Optional[str] = Query(None)):
     cursor.close()
     conn.close()
     return results
+
+
+def _parse_ymd(date_str: str) -> date:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+
+def _row_to_result(r) -> dict:
+    dt = r[3]
+    return {
+        "id": r[0],
+        "equipment_id": r[1],
+        "item_id": r[2],
+        "date": dt.isoformat() if hasattr(dt, "isoformat") else str(dt),
+        "value": r[4],
+    }
+
+
+# ===============================
+# 工程×期間の点検結果を一括取得
+# ===============================
+@router.get("/by_process")
+def get_results_by_process(
+    process_id: int,
+    from_date: str = Query(..., alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+):
+    d_from = _parse_ymd(from_date)
+    d_to = _parse_ymd(to_date) if to_date else d_from
+    if d_to < d_from:
+        raise HTTPException(status_code=400, detail="'to' must be >= 'from'")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT r.id, r.equipment_id, r.item_id, r.date, r.value
+        FROM inspection_results r
+        INNER JOIN equipments e ON e.id = r.equipment_id
+        WHERE e.process_id = ? AND r.date >= ? AND r.date <= ?
+        ORDER BY r.date, r.equipment_id, r.id
+    """, (process_id, d_from, d_to))
+
+    results = [_row_to_result(r) for r in cursor.fetchall()]
+
+    cursor.close()
+    conn.close()
+    return results
+
+
 # ===============================
 # 点検結果の削除（DELETE）
 # ===============================
