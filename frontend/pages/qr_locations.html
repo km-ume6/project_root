@@ -123,8 +123,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 <script>
-    // 画面は5500（こちらが安定）。APIは8000
-    const ENTRY_URL = `${window.location.protocol}//${window.location.hostname}:5500/pages/locations.html`;
+    // 現在の配信先をそのまま使う。古い 5500/8000 の固定URLは避ける
+    const ENTRY_URL = `${window.location.origin}/pages/locations.html`;
 
     document.getElementById("targetUrl").textContent = ENTRY_URL;
     const openLink = document.getElementById("openLink");

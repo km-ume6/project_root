@@ -1,15 +1,19 @@
 // Coolify 向けの安全な方針:
 // 1. まず /api を same-origin で使う（reverse proxy / same-host 配信を前提）
-// 2. 旧ローカル構成（画面:5500 / API:8000）だけ 8000 へフォールバック
-// 3. どちらでも上書き可能にする
+// 2. 旧ローカル構成（localhost / 127.0.0.1 で画面:5500 / API:8000）の場合のみ 8000 へフォールバック
+// 3. LAN IP や Coolify デプロイでは同一オリジン /api を優先する
+// 4. どちらでも上書き可能にする
 const API_BASE = (() => {
     const override = window.__API_BASE__;
     if (override && String(override).trim()) {
         return String(override).replace(/\/+$/, "");
     }
 
-    if (window.location.port === "5500") {
-        return `${window.location.protocol}//${window.location.hostname}:8000/api`;
+    const hostname = window.location.hostname;
+    const isLocalLoopback = ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
+
+    if (window.location.port === "5500" && isLocalLoopback) {
+        return `${window.location.protocol}//${hostname}:8000/api`;
     }
 
     return "/api";
