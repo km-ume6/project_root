@@ -1,8 +1,19 @@
-// 5500番（静的配信）のときだけ API を :8000 へ。それ以外（8000/8010 等で画面+API同居）は同一オリジン
-const API_BASE =
-    window.location.port === "5500"
-        ? `${window.location.protocol}//${window.location.hostname}:8000`
-        : "";
+// Coolify 向けの安全な方針:
+// 1. まず /api を same-origin で使う（reverse proxy / same-host 配信を前提）
+// 2. 旧ローカル構成（画面:5500 / API:8000）だけ 8000 へフォールバック
+// 3. どちらでも上書き可能にする
+const API_BASE = (() => {
+    const override = window.__API_BASE__;
+    if (override && String(override).trim()) {
+        return String(override).replace(/\/+$/, "");
+    }
+
+    if (window.location.port === "5500") {
+        return `${window.location.protocol}//${window.location.hostname}:8000/api`;
+    }
+
+    return "/api";
+})();
 
 
 async function getLocations() {

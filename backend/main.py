@@ -38,14 +38,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": f"サーバーエラー: {exc}"})
 
 
+API_PREFIX = "/api"
+
 # API ルーター（静的ファイルより先に登録）
-app.include_router(locations.router)
-app.include_router(departments.router)
-app.include_router(processes.router)
-app.include_router(equipments.router)
-app.include_router(inspection_items.router)
-app.include_router(inspection_records.router)
-app.include_router(inspection_results.router)
+app.include_router(locations.router, prefix=API_PREFIX)
+app.include_router(departments.router, prefix=API_PREFIX)
+app.include_router(processes.router, prefix=API_PREFIX)
+app.include_router(equipments.router, prefix=API_PREFIX)
+app.include_router(inspection_items.router, prefix=API_PREFIX)
+app.include_router(inspection_records.router, prefix=API_PREFIX)
+app.include_router(inspection_results.router, prefix=API_PREFIX)
 
 
 @app.get("/")
